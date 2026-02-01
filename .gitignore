@@ -8,8 +8,7 @@ venv/
 env/
 ENV/
 
-# Database files (DO NOT COMMIT)
-backend/data/*.db
+# Database journal files (temporary SQLite files)
 backend/data/*.db-journal
 backend/data/*.db-shm
 backend/data/*.db-wal
