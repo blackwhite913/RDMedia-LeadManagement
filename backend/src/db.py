@@ -2,7 +2,7 @@
 Database connection and session management
 """
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -50,4 +50,18 @@ def init_db():
     """
     from src.models import Lead, Import, Export, ExportLead  # Import here to avoid circular imports
     Base.metadata.create_all(bind=engine)
+    _ensure_leads_schema_columns()
     print(f"Database initialized at: {DATABASE_PATH}")
+
+
+def _ensure_leads_schema_columns():
+    """
+    Lightweight schema guard for existing SQLite DBs.
+    Adds columns that may not exist in older local databases.
+    """
+    with engine.begin() as conn:
+        table_info = conn.execute(text("PRAGMA table_info(leads)")).fetchall()
+        existing_columns = {row[1] for row in table_info}
+
+        if "icp_score" not in existing_columns:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN icp_score FLOAT"))

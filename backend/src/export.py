@@ -41,6 +41,18 @@ def get_eligible_leads(
     # Apply optional filters
     if country:
         query = query.filter(Lead.country == country)
+
+    # Prioritize high ICP first and keep unranked leads (NULL) last.
+    # Secondary sort on id keeps ordering deterministic for ties.
+    if hasattr(Lead, "icp_score"):
+        query = query.order_by(
+            Lead.icp_score.is_(None),
+            Lead.icp_score.desc(),
+            Lead.id.asc()
+        )
+    else:
+        # TODO: Keep fallback until all environments include Lead.icp_score.
+        pass
     
     return query.all()
 
@@ -88,10 +100,15 @@ def create_export(
             "message": f"Percentage too low: would export 0 leads (eligible: {eligible_count})"
         }
     
-    # Random selection with optional seed for reproducibility
-    if seed is not None:
-        random.seed(seed)
-    selected_leads = random.sample(eligible, export_count)
+    # If ICP ranking is available, export highest-ranked leads first.
+    # Fallback to random sampling only for legacy schemas without icp_score.
+    if hasattr(Lead, "icp_score"):
+        selected_leads = eligible[:export_count]
+    else:
+        # Random selection with optional seed for reproducibility
+        if seed is not None:
+            random.seed(seed)
+        selected_leads = random.sample(eligible, export_count)
     
     # Create export record
     export_record = Export(
@@ -136,6 +153,7 @@ def create_export(
             "company_domain": lead.company_domain,
             "city": lead.city,
             "country": lead.country,
+            "icp_score": lead.icp_score,
         }
         for lead in selected_leads
     ]

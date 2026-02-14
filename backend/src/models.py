@@ -32,6 +32,7 @@ class Lead(Base):
     company_domain = Column(String, nullable=True)
     city = Column(String, nullable=True)
     country = Column(String, nullable=True)
+    icp_score = Column(Float, nullable=True)
     
     # Metadata
     source = Column(String, default="apollo", nullable=False)
@@ -61,6 +62,7 @@ class Lead(Base):
             "company_domain": self.company_domain,
             "city": self.city,
             "country": self.country,
+            "icp_score": self.icp_score,
             "source": self.source,
             "first_seen_date": self.first_seen_date.isoformat() if self.first_seen_date else None,
             "last_seen_date": self.last_seen_date.isoformat() if self.last_seen_date else None,
@@ -133,6 +135,7 @@ Index('idx_company_lookup', Lead.company_name)
 Index('idx_last_seen', Lead.last_seen_date)
 Index('idx_cooldown', Lead.cooldown_until)
 Index('idx_export_eligibility', Lead.email, Lead.cooldown_until)
+Index('idx_icp_score', Lead.icp_score)
 
 # Index for export_leads junction table
 Index('idx_export_lead', ExportLead.export_id, ExportLead.lead_id, unique=True)

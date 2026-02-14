@@ -72,7 +72,7 @@ function Export() {
 
   const downloadCSV = (leads, filename) => {
     const headers = ['email', 'first_name', 'last_name', 'company_name', 
-                     'job_title', 'company_domain', 'city', 'country']
+                     'job_title', 'company_domain', 'city', 'country', 'icp_score']
     
     const csvContent = [
       headers.join(','),

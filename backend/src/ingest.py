@@ -3,6 +3,7 @@ CSV ingestion and processing logic
 Handles Apollo CSV exports with flexible column mapping and deduplication
 """
 import pandas as pd
+import re
 from datetime import datetime
 from typing import Dict, List, Tuple
 from sqlalchemy.orm import Session
@@ -66,6 +67,15 @@ COLUMN_MAPPING = {
     # Company Address (for parsing country if not provided)
     'company_address': 'company_address',
     'Company Address': 'company_address',
+
+    # ICP ranking variations
+    'ICP RANK': 'icp_score',
+    'icp_rank': 'icp_score',
+    'icp rank': 'icp_score',
+    'icp_score': 'icp_score',
+    'ICP_SCORE': 'icp_score',
+    'Perplexity Ranked': 'icp_score',
+    'perplexity_ranked': 'icp_score',
 }
 
 # Columns to explicitly exclude (Apollo tracking and metadata)
@@ -145,6 +155,37 @@ def extract_country_from_address(address: str) -> str:
     return None
 
 
+def extract_icp_score(value) -> float:
+    """
+    Parse ICP score from CSV cell values.
+    Supports:
+    - numeric cells (e.g., 95)
+    - string patterns (e.g., "ICP_SCORE: 95\\nFIT: HIGH")
+    - blank/invalid values -> None
+    """
+    raw = clean_value(value)
+    if raw is None:
+        return None
+
+    # Direct numeric value.
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        pass
+
+    # Parse structured text like "ICP_SCORE: 95".
+    match = re.search(r'ICP_SCORE:\s*([0-9]+(?:\.[0-9]+)?)', raw, flags=re.IGNORECASE)
+    if match:
+        return float(match.group(1))
+
+    # Fallback: first number anywhere in the string.
+    fallback = re.search(r'([0-9]+(?:\.[0-9]+)?)', raw)
+    if fallback:
+        return float(fallback.group(1))
+
+    return None
+
+
 def process_csv_file(
     file_path: str,
     db: Session,
@@ -213,6 +254,10 @@ def process_csv_file(
                     extracted_country = extract_country_from_address(lead_data.get('company_address'))
                     if extracted_country:
                         lead_data['country'] = extracted_country
+
+                # Parse ICP score from ranking column (if present).
+                if 'icp_score' in lead_data:
+                    lead_data['icp_score'] = extract_icp_score(lead_data.get('icp_score'))
                 
                 # Normalize email for case-insensitive comparison
                 email_normalized = normalize_email(email)
@@ -239,6 +284,9 @@ def process_csv_file(
                 if existing_lead:
                     # Update last_seen_date for existing lead
                     existing_lead.last_seen_date = current_date
+                    # Refresh score when present in new import.
+                    if lead_data.get('icp_score') is not None:
+                        existing_lead.icp_score = lead_data.get('icp_score')
                     duplicates += 1
                     # #region agent log
                     with open('/Users/ayaansheikh/Desktop/RDMedia/.cursor/debug.log', 'a') as f:
@@ -259,6 +307,7 @@ def process_csv_file(
                         company_domain=lead_data.get('company_domain'),
                         city=lead_data.get('city'),
                         country=lead_data.get('country'),
+                        icp_score=lead_data.get('icp_score'),
                         source=source,
                         first_seen_date=current_date,
                         last_seen_date=current_date
