@@ -1,10 +1,21 @@
 """
 SQLAlchemy models for the lead management system
 """
+import json
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Float, Index, ForeignKey
 from sqlalchemy.ext.hybrid import hybrid_property
 from src.db import Base
+
+
+def _parse_tags(value):
+    """Parse qualification_tags JSON to list; return None if null or invalid."""
+    if not value:
+        return None
+    try:
+        return json.loads(value) if isinstance(value, str) else value
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 class Lead(Base):
@@ -33,6 +44,9 @@ class Lead(Base):
     city = Column(String, nullable=True)
     country = Column(String, nullable=True)
     icp_score = Column(Float, nullable=True)
+    qualification_tags = Column(String, nullable=True)  # JSON array string
+    qualified_at = Column(DateTime, nullable=True)
+    qualification_reason = Column(String, nullable=True)
     
     # Metadata
     source = Column(String, default="apollo", nullable=False)
@@ -63,6 +77,9 @@ class Lead(Base):
             "city": self.city,
             "country": self.country,
             "icp_score": self.icp_score,
+            "qualification_tags": _parse_tags(self.qualification_tags),
+            "qualified_at": self.qualified_at.isoformat() if self.qualified_at else None,
+            "qualification_reason": self.qualification_reason,
             "source": self.source,
             "first_seen_date": self.first_seen_date.isoformat() if self.first_seen_date else None,
             "last_seen_date": self.last_seen_date.isoformat() if self.last_seen_date else None,

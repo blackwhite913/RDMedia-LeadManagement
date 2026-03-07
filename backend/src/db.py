@@ -65,3 +65,9 @@ def _ensure_leads_schema_columns():
 
         if "icp_score" not in existing_columns:
             conn.execute(text("ALTER TABLE leads ADD COLUMN icp_score FLOAT"))
+        if "qualification_tags" not in existing_columns:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN qualification_tags TEXT"))
+        if "qualified_at" not in existing_columns:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN qualified_at DATETIME"))
+        if "qualification_reason" not in existing_columns:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN qualification_reason TEXT"))

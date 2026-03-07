@@ -1,7 +1,14 @@
 """
 FastAPI application entry point
 """
+from pathlib import Path
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
+
+# Load backend/.env so PERPLEXITY_API_KEY is available regardless of process cwd
+_backend_dir = Path(__file__).resolve().parent.parent
+load_dotenv(_backend_dir / ".env")
 from fastapi.middleware.cors import CORSMiddleware
 from src.db import init_db
 from src.api import router
@@ -18,8 +25,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",  # Vite default port
+        "http://localhost:5174",  # Vite when 5173 in use
         "http://localhost:3000",  # Alternative React port
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
         "http://127.0.0.1:3000",
     ],
     allow_credentials=True,

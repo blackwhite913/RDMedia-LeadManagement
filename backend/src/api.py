@@ -194,6 +194,10 @@ async def create_lead_export(
     percentage: float = Query(..., ge=0.1, le=100, description="Percentage of eligible leads to export"),
     batch_name: str = Query(..., min_length=1, description="Name for this export batch"),
     country: Optional[str] = Query(None, description="Optional country filter"),
+    qualified_only: bool = Query(
+        True,
+        description="If true, export only AI-qualified leads (icp_score >= 70)"
+    ),
     seed: Optional[int] = Query(None, description="Optional random seed for reproducibility"),
     db: Session = Depends(get_db)
 ):
@@ -212,7 +216,8 @@ async def create_lead_export(
             percentage=percentage,
             batch_name=batch_name,
             seed=seed,
-            filters=filters
+            filters=filters,
+            qualified_only=qualified_only
         )
         
         return result
@@ -227,6 +232,10 @@ async def create_lead_export(
 def preview_export(
     percentage: float = Query(..., ge=0.1, le=100, description="Percentage to preview"),
     country: Optional[str] = Query(None, description="Optional country filter"),
+    qualified_only: bool = Query(
+        True,
+        description="If true, preview only AI-qualified leads (icp_score >= 70)"
+    ),
     db: Session = Depends(get_db)
 ):
     """
@@ -238,7 +247,11 @@ def preview_export(
         from src.export import get_eligible_leads
         
         # Get eligible leads
-        eligible = get_eligible_leads(db, country=country)
+        eligible = get_eligible_leads(
+            db,
+            country=country,
+            qualified_only=qualified_only
+        )
         eligible_count = len(eligible)
         would_export = int(eligible_count * (percentage / 100))
         
@@ -256,6 +269,7 @@ def preview_export(
             "eligible_count": eligible_count,
             "would_export": would_export,
             "percentage": percentage,
+            "qualified_only": qualified_only,
             "in_cooldown": in_cooldown or 0,
             "total_leads": total_leads or 0,
             "available_for_export": eligible_count > 0
@@ -349,6 +363,38 @@ def get_imports(
         "total_pages": ((total - 1) // limit + 1) if total > 0 else 0,
         "imports": imports_data
     }
+
+
+@router.get("/qualify-leads/preview")
+def qualify_leads_preview(db: Session = Depends(get_db)):
+    """Preview how many domains/leads would be qualified and estimated time (seconds)."""
+    try:
+        from src.qualify import get_qualify_preview
+        return get_qualify_preview(db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/qualify-leads")
+def qualify_leads(db: Session = Depends(get_db)):
+    """
+    Run AI qualification on unscored leads (grouped by company_domain).
+    Calls Perplexity once per domain and updates all leads for that domain.
+    Returns summary: companies_evaluated, leads_updated, errors.
+    """
+    try:
+        from src.qualify import run_qualification
+        result = run_qualification(db)
+        return result
+    except ValueError as e:
+        if "PERPLEXITY_API_KEY" in str(e):
+            raise HTTPException(
+                status_code=503,
+                detail="Qualification unavailable: PERPLEXITY_API_KEY is not set. Set it in the environment or in a .env file."
+            )
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error running qualification: {str(e)}")
 
 
 @router.get("/health")

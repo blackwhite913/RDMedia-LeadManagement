@@ -89,11 +89,12 @@ export const api = {
    * @param {Object} filters - Optional filters (country, etc.)
    * @returns {Promise} Export result with CSV data
    */
-  createExport: async (percentage, batchName, filters = {}) => {
+  createExport: async (percentage, batchName, filters = {}, qualifiedOnly = true) => {
     const response = await apiClient.post('/export', null, {
       params: {
         percentage,
         batch_name: batchName,
+        qualified_only: qualifiedOnly,
         ...filters,
       },
     });
@@ -106,9 +107,9 @@ export const api = {
    * @param {Object} filters - Optional filters
    * @returns {Promise} Preview data
    */
-  previewExport: async (percentage, filters = {}) => {
+  previewExport: async (percentage, filters = {}, qualifiedOnly = true) => {
     const response = await apiClient.get('/export/preview', {
-      params: { percentage, ...filters },
+      params: { percentage, qualified_only: qualifiedOnly, ...filters },
     });
     return response.data;
   },
@@ -135,6 +136,28 @@ export const api = {
   getImports: async (page = 1, limit = 20) => {
     const response = await apiClient.get('/imports', {
       params: { page, limit },
+    });
+    return response.data;
+  },
+
+  /**
+   * Preview qualification: domains/leads count and estimated time (seconds).
+   * @returns {Promise} { domains_count, leads_count, estimated_seconds }
+   */
+  qualifyPreview: async () => {
+    const response = await apiClient.get('/qualify-leads/preview');
+    return response.data;
+  },
+
+  /**
+   * Run AI qualification on unscored leads (Perplexity).
+   * Groups by company domain, one call per domain, updates icp_score and tags.
+   * Can take several minutes for many leads; 30 min timeout.
+   * @returns {Promise} { companies_evaluated, leads_updated, errors }
+   */
+  qualifyLeads: async () => {
+    const response = await apiClient.post('/qualify-leads', null, {
+      timeout: 30 * 60 * 1000, // 30 minutes for large runs
     });
     return response.data;
   },

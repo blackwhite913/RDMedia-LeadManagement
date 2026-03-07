@@ -32,6 +32,14 @@ function Navbar() {
               Dashboard
             </Link>
             <Link
+              to="/qualify"
+              className={`px-3 py-2 text-sm font-medium transition-colors ${isActive(
+                '/qualify'
+              )}`}
+            >
+              Qualify
+            </Link>
+            <Link
               to="/upload"
               className={`px-3 py-2 text-sm font-medium transition-colors ${isActive(
                 '/upload'

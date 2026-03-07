@@ -264,23 +264,12 @@ def process_csv_file(
                 if not email_normalized:
                     errors.append(f"Row {idx + 2}: Invalid email '{email}', skipping")
                     continue
-                
-                # #region agent log
-                import json
-                with open('/Users/ayaansheikh/Desktop/RDMedia/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"initial","hypothesisId":"A,D","location":"ingest.py:172","message":"Before duplicate check","data":{"row":int(idx)+2,"email_raw":email,"email_normalized":email_normalized},"timestamp":int(__import__('time').time()*1000)})+'\n')
-                # #endregion
-                
+
                 # Check if lead already exists (case-insensitive)
                 existing_lead = db.query(Lead).filter(
                     Lead.email == email_normalized
                 ).first()
-                
-                # #region agent log
-                with open('/Users/ayaansheikh/Desktop/RDMedia/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"initial","hypothesisId":"A,C","location":"ingest.py:183","message":"After duplicate check","data":{"email_normalized":email_normalized,"existing_found":existing_lead is not None,"existing_id":existing_lead.id if existing_lead else None},"timestamp":int(__import__('time').time()*1000)})+'\n')
-                # #endregion
-                
+
                 if existing_lead:
                     # Update last_seen_date for existing lead
                     existing_lead.last_seen_date = current_date
@@ -288,15 +277,7 @@ def process_csv_file(
                     if lead_data.get('icp_score') is not None:
                         existing_lead.icp_score = lead_data.get('icp_score')
                     duplicates += 1
-                    # #region agent log
-                    with open('/Users/ayaansheikh/Desktop/RDMedia/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"initial","hypothesisId":"A","location":"ingest.py:190","message":"Updating existing lead","data":{"email":email_normalized,"lead_id":existing_lead.id,"duplicates_count":duplicates},"timestamp":int(__import__('time').time()*1000)})+'\n')
-                    # #endregion
                 else:
-                    # #region agent log
-                    with open('/Users/ayaansheikh/Desktop/RDMedia/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"initial","hypothesisId":"B,E","location":"ingest.py:198","message":"Before creating new lead","data":{"email":email_normalized,"new_leads_count":new_leads,"total_in_db_before":db.query(Lead).count()},"timestamp":int(__import__('time').time()*1000)})+'\n')
-                    # #endregion
                     # Create new lead
                     new_lead = Lead(
                         email=email_normalized,
@@ -315,17 +296,8 @@ def process_csv_file(
                     db.add(new_lead)
                     db.flush()  # Flush immediately to detect duplicates within the same batch
                     new_leads += 1
-                    # #region agent log
-                    with open('/Users/ayaansheikh/Desktop/RDMedia/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"initial","hypothesisId":"B,D","location":"ingest.py:215","message":"After adding new lead","data":{"email":email_normalized,"new_lead_id":new_lead.id if hasattr(new_lead,'id') else None,"new_leads_count":new_leads},"timestamp":int(__import__('time').time()*1000)})+'\n')
-                    # #endregion
-                
+
             except Exception as e:
-                # #region agent log
-                import json
-                with open('/Users/ayaansheikh/Desktop/RDMedia/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"initial","hypothesisId":"ALL","location":"ingest.py:223","message":"Exception during row processing","data":{"row":int(idx)+2,"error":str(e),"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)})+'\n')
-                # #endregion
                 errors.append(f"Row {idx + 2}: {str(e)}")
                 continue
         

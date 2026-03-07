@@ -5,6 +5,7 @@ function Export() {
   const [batchName, setBatchName] = useState('')
   const [percentage, setPercentage] = useState(30)
   const [country, setCountry] = useState('')
+  const [qualifiedOnly, setQualifiedOnly] = useState(true)
   const [preview, setPreview] = useState(null)
   const [exportResult, setExportResult] = useState(null)
   const [exportHistory, setExportHistory] = useState([])
@@ -32,7 +33,7 @@ function Export() {
       setLoading(true)
       setError(null)
       const filters = country ? { country } : {}
-      const data = await api.previewExport(percentage, filters)
+      const data = await api.previewExport(percentage, filters, qualifiedOnly)
       setPreview(data)
     } catch (err) {
       console.error('Error previewing export:', err)
@@ -52,7 +53,7 @@ function Export() {
       setLoading(true)
       setError(null)
       const filters = country ? { country } : {}
-      const data = await api.createExport(percentage, batchName, filters)
+      const data = await api.createExport(percentage, batchName, filters, qualifiedOnly)
       
       if (data.success) {
         setExportResult(data)
@@ -72,7 +73,8 @@ function Export() {
 
   const downloadCSV = (leads, filename) => {
     const headers = ['email', 'first_name', 'last_name', 'company_name', 
-                     'job_title', 'company_domain', 'city', 'country', 'icp_score']
+                     'company_domain', 'job_title', 'country', 'icp_score',
+                     'qualification_tags', 'qualification_reason']
     
     const csvContent = [
       headers.join(','),
@@ -175,6 +177,33 @@ function Export() {
               placeholder="e.g., USA"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg"
             />
+          </div>
+
+          {/* Export Type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Export Type
+            </label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="exportType"
+                  checked={qualifiedOnly}
+                  onChange={() => setQualifiedOnly(true)}
+                />
+                AI Qualified Leads Only (score ≥ 70)
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="exportType"
+                  checked={!qualifiedOnly}
+                  onChange={() => setQualifiedOnly(false)}
+                />
+                All Leads (ignore AI score)
+              </label>
+            </div>
           </div>
 
           {/* Preview Button */}

@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard'
 import Upload from './pages/Upload'
 import Export from './pages/Export'
 import Leads from './pages/Leads'
+import Qualify from './pages/Qualify'
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <main className="container mx-auto px-4 py-8">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/qualify" element={<Qualify />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/export" element={<Export />} />
             <Route path="/leads" element={<Leads />} />

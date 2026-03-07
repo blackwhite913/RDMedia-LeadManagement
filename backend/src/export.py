@@ -15,6 +15,7 @@ COOLDOWN_DAYS = 90
 def get_eligible_leads(
     db: Session,
     country: Optional[str] = None,
+    qualified_only: bool = True,
 ) -> List[Lead]:
     """
     Get leads eligible for export (not in cooldown, has valid email)
@@ -22,13 +23,14 @@ def get_eligible_leads(
     Args:
         db: Database session
         country: Optional country filter
+        qualified_only: If True, include only leads with icp_score >= 70
     
     Returns:
         List of eligible Lead objects
     """
     now = datetime.utcnow()
     
-    # Base query: must have valid email and not be in cooldown
+    # Base query: must have valid email and not be in cooldown.
     query = db.query(Lead).filter(
         Lead.email.isnot(None),
         Lead.email != '',
@@ -37,6 +39,13 @@ def get_eligible_leads(
             Lead.cooldown_until < now
         )
     )
+
+    # Optional AI qualification filter.
+    if qualified_only:
+        query = query.filter(
+            Lead.icp_score.isnot(None),
+            Lead.icp_score >= 70
+        )
     
     # Apply optional filters
     if country:
@@ -62,7 +71,8 @@ def create_export(
     percentage: float,
     batch_name: str,
     seed: Optional[int] = None,
-    filters: Optional[Dict] = None
+    filters: Optional[Dict] = None,
+    qualified_only: bool = True
 ) -> Dict:
     """
     Create a new export batch with percentage-based lead selection
@@ -82,7 +92,11 @@ def create_export(
     
     # Get eligible leads
     country_filter = filters.get('country') if filters else None
-    eligible = get_eligible_leads(db, country=country_filter)
+    eligible = get_eligible_leads(
+        db,
+        country=country_filter,
+        qualified_only=qualified_only
+    )
     eligible_count = len(eligible)
     
     if eligible_count == 0:
@@ -149,11 +163,12 @@ def create_export(
             "first_name": lead.first_name,
             "last_name": lead.last_name,
             "company_name": lead.company_name,
-            "job_title": lead.job_title,
             "company_domain": lead.company_domain,
-            "city": lead.city,
+            "job_title": lead.job_title,
             "country": lead.country,
             "icp_score": lead.icp_score,
+            "qualification_tags": lead.qualification_tags,
+            "qualification_reason": lead.qualification_reason,
         }
         for lead in selected_leads
     ]
@@ -165,6 +180,7 @@ def create_export(
         "eligible_count": eligible_count,
         "exported_count": len(selected_leads),
         "percentage_used": percentage,
+        "qualified_only": qualified_only,
         "cooldown_until": cooldown_date.isoformat(),
         "cooldown_days": COOLDOWN_DAYS,
         "leads": csv_data
