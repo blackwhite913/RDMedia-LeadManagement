@@ -5,13 +5,18 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import List, Optional
+from pydantic import BaseModel, Field
 from src.db import get_db
 from src.models import Lead, Import, Export, ExportLead
 from src.ingest import process_csv_bytes
 
 # Create router
 router = APIRouter(prefix="/api")
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: List[int] = Field(default_factory=list)
 
 
 @router.post("/upload-csv")
@@ -141,6 +146,52 @@ def get_leads(
     }
 
 
+@router.delete("/leads/{lead_id}")
+def delete_lead(
+    lead_id: int,
+    db: Session = Depends(get_db)
+):
+    """Delete a single lead by ID."""
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    try:
+        db.query(ExportLead).filter(ExportLead.lead_id == lead_id).delete(
+            synchronize_session=False
+        )
+        db.delete(lead)
+        db.commit()
+        return {"success": True, "deleted_id": lead_id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error deleting lead: {str(e)}")
+
+
+@router.post("/leads/delete-bulk")
+def delete_leads_bulk(
+    payload: BulkDeleteRequest,
+    db: Session = Depends(get_db)
+):
+    """Delete multiple leads by ID list."""
+    if not payload.ids:
+        return {"success": True, "deleted_count": 0}
+
+    unique_ids = list(set(payload.ids))
+    try:
+        db.query(ExportLead).filter(ExportLead.lead_id.in_(unique_ids)).delete(
+            synchronize_session=False
+        )
+        deleted_count = db.query(Lead).filter(Lead.id.in_(unique_ids)).delete(
+            synchronize_session=False
+        )
+        db.commit()
+        return {"success": True, "deleted_count": deleted_count}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error bulk deleting leads: {str(e)}")
+
+
 @router.get("/leads/search")
 def search_leads(
     q: str = Query(..., min_length=1, description="Search query (email or company)"),
@@ -194,10 +245,6 @@ async def create_lead_export(
     percentage: float = Query(..., ge=0.1, le=100, description="Percentage of eligible leads to export"),
     batch_name: str = Query(..., min_length=1, description="Name for this export batch"),
     country: Optional[str] = Query(None, description="Optional country filter"),
-    qualified_only: bool = Query(
-        True,
-        description="If true, export only AI-qualified leads (icp_score >= 70)"
-    ),
     seed: Optional[int] = Query(None, description="Optional random seed for reproducibility"),
     db: Session = Depends(get_db)
 ):
@@ -216,8 +263,7 @@ async def create_lead_export(
             percentage=percentage,
             batch_name=batch_name,
             seed=seed,
-            filters=filters,
-            qualified_only=qualified_only
+            filters=filters
         )
         
         return result
@@ -232,10 +278,6 @@ async def create_lead_export(
 def preview_export(
     percentage: float = Query(..., ge=0.1, le=100, description="Percentage to preview"),
     country: Optional[str] = Query(None, description="Optional country filter"),
-    qualified_only: bool = Query(
-        True,
-        description="If true, preview only AI-qualified leads (icp_score >= 70)"
-    ),
     db: Session = Depends(get_db)
 ):
     """
@@ -249,8 +291,7 @@ def preview_export(
         # Get eligible leads
         eligible = get_eligible_leads(
             db,
-            country=country,
-            qualified_only=qualified_only
+            country=country
         )
         eligible_count = len(eligible)
         would_export = int(eligible_count * (percentage / 100))
@@ -269,7 +310,6 @@ def preview_export(
             "eligible_count": eligible_count,
             "would_export": would_export,
             "percentage": percentage,
-            "qualified_only": qualified_only,
             "in_cooldown": in_cooldown or 0,
             "total_leads": total_leads or 0,
             "available_for_export": eligible_count > 0
@@ -363,38 +403,6 @@ def get_imports(
         "total_pages": ((total - 1) // limit + 1) if total > 0 else 0,
         "imports": imports_data
     }
-
-
-@router.get("/qualify-leads/preview")
-def qualify_leads_preview(db: Session = Depends(get_db)):
-    """Preview how many domains/leads would be qualified and estimated time (seconds)."""
-    try:
-        from src.qualify import get_qualify_preview
-        return get_qualify_preview(db)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/qualify-leads")
-def qualify_leads(db: Session = Depends(get_db)):
-    """
-    Run AI qualification on unscored leads (grouped by company_domain).
-    Calls Perplexity once per domain and updates all leads for that domain.
-    Returns summary: companies_evaluated, leads_updated, errors.
-    """
-    try:
-        from src.qualify import run_qualification
-        result = run_qualification(db)
-        return result
-    except ValueError as e:
-        if "PERPLEXITY_API_KEY" in str(e):
-            raise HTTPException(
-                status_code=503,
-                detail="Qualification unavailable: PERPLEXITY_API_KEY is not set. Set it in the environment or in a .env file."
-            )
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error running qualification: {str(e)}")
 
 
 @router.get("/health")

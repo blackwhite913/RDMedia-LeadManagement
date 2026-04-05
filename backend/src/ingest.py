@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, List, Tuple
 from sqlalchemy.orm import Session
 from src.models import Lead, Import
+from src.utils.location import extract_country
 
 
 # Column mapping: maps various possible CSV headers to our database fields
@@ -130,29 +131,24 @@ def normalize_email(email: str) -> str:
     return email.lower().strip()
 
 
-def extract_country_from_address(address: str) -> str:
+def normalize_company_domain(company_domain: str) -> str:
     """
-    Extract country from Apollo-style Company Address field
-    Format: "street, city, state, country, zip"
-    Returns the country part or None if not found
+    Normalize company domain for case-insensitive comparison.
     """
-    if not address or not isinstance(address, str):
+    if not company_domain:
         return None
-    
-    # Split by comma and get parts
-    parts = [p.strip() for p in address.split(',')]
-    
-    # Apollo format typically has country as the second-to-last part
-    # Example: "127 East 9th Street, Los Angeles, California, United States, 90015"
-    # Parts: [street, city, state, COUNTRY, zip]
-    if len(parts) >= 4:
-        # Second to last part is usually the country
-        country = parts[-2]
-        # Clean up common variations
-        if country and len(country) > 1:
-            return country
-    
-    return None
+    normalized = company_domain.lower().strip()
+    return normalized or None
+
+
+def is_missing_country(country_value) -> bool:
+    """Return True when country is blank-like or N/A."""
+    if country_value is None:
+        return True
+    if not isinstance(country_value, str):
+        return False
+    cleaned = country_value.strip()
+    return cleaned == "" or cleaned.upper() == "N/A"
 
 
 def extract_icp_score(value) -> float:
@@ -214,6 +210,8 @@ def process_csv_file(
         total_rows = len(df)
         new_leads = 0
         duplicates = 0
+        csv_duplicates = 0
+        cooldown_skipped = 0
         errors = []
         current_date = datetime.utcnow()
         
@@ -231,11 +229,49 @@ def process_csv_file(
                 "total_rows": total_rows,
                 "new_leads_inserted": 0,
                 "duplicates_skipped": 0,
+                "csv_duplicates": 0,
+                "db_matches": 0,
+                "cooldown_skipped": 0,
+                "error_rows": 0,
                 "errors": ["CSV must contain an email column"]
             }
+
+        # Pre-deduplicate rows inside the CSV by normalized email and domain.
+        seen_emails = set()
+        seen_domains = set()
+        unique_rows = []
+
+        for idx, row in df.iterrows():
+            row_email = None
+            row_domain = None
+
+            for csv_col, internal_col in column_map.items():
+                if internal_col == "email" and row_email is None:
+                    row_email = clean_value(row[csv_col])
+                elif internal_col == "company_domain" and row_domain is None:
+                    row_domain = clean_value(row[csv_col])
+
+            email_normalized = normalize_email(row_email)
+            domain_normalized = normalize_company_domain(row_domain)
+
+            # Keep rows with missing email so row-level validation can report errors consistently.
+            if not email_normalized:
+                unique_rows.append((idx, row))
+                continue
+
+            if email_normalized in seen_emails or (
+                domain_normalized and domain_normalized in seen_domains
+            ):
+                csv_duplicates += 1
+                continue
+
+            seen_emails.add(email_normalized)
+            if domain_normalized:
+                seen_domains.add(domain_normalized)
+            unique_rows.append((idx, row))
         
         # Process each row
-        for idx, row in df.iterrows():
+        for idx, row in unique_rows:
             try:
                 # Extract and map fields
                 lead_data = {}
@@ -249,11 +285,10 @@ def process_csv_file(
                     errors.append(f"Row {idx + 2}: Missing email, skipping")
                     continue
                 
-                # Extract country from company_address if country field is empty
-                if not lead_data.get('country') and lead_data.get('company_address'):
-                    extracted_country = extract_country_from_address(lead_data.get('company_address'))
-                    if extracted_country:
-                        lead_data['country'] = extracted_country
+                # Extract country from company_address when country is missing.
+                if is_missing_country(lead_data.get('country')):
+                    extracted_country = extract_country(lead_data.get('company_address'))
+                    lead_data['country'] = extracted_country if extracted_country else None
 
                 # Parse ICP score from ranking column (if present).
                 if 'icp_score' in lead_data:
@@ -265,17 +300,47 @@ def process_csv_file(
                     errors.append(f"Row {idx + 2}: Invalid email '{email}', skipping")
                     continue
 
-                # Check if lead already exists (case-insensitive)
-                existing_lead = db.query(Lead).filter(
-                    Lead.email == email_normalized
-                ).first()
+                # Normalize company domain for case-insensitive deduplication.
+                company_domain_normalized = normalize_company_domain(
+                    lead_data.get('company_domain')
+                )
+                lead_data['company_domain'] = company_domain_normalized
+
+                # Check if lead already exists by email OR company domain.
+                if company_domain_normalized:
+                    existing_lead = db.query(Lead).filter(
+                        (Lead.email == email_normalized) |
+                        (Lead.company_domain == company_domain_normalized)
+                    ).first()
+                else:
+                    existing_lead = db.query(Lead).filter(
+                        Lead.email == email_normalized
+                    ).first()
 
                 if existing_lead:
-                    # Update last_seen_date for existing lead
+                    # Skip matched lead while cooldown is active.
+                    if existing_lead.cooldown_until and existing_lead.cooldown_until > current_date:
+                        cooldown_skipped += 1
+                        continue
+
+                    # Refresh last_seen_date when lead is outside cooldown.
                     existing_lead.last_seen_date = current_date
-                    # Refresh score when present in new import.
-                    if lead_data.get('icp_score') is not None:
-                        existing_lead.icp_score = lead_data.get('icp_score')
+
+                    # Fill missing fields only; keep existing non-null values intact.
+                    if not existing_lead.first_name and lead_data.get('first_name'):
+                        existing_lead.first_name = lead_data.get('first_name')
+                    if not existing_lead.last_name and lead_data.get('last_name'):
+                        existing_lead.last_name = lead_data.get('last_name')
+                    if not existing_lead.company_name and lead_data.get('company_name'):
+                        existing_lead.company_name = lead_data.get('company_name')
+                    if not existing_lead.job_title and lead_data.get('job_title'):
+                        existing_lead.job_title = lead_data.get('job_title')
+                    if not existing_lead.company_domain and company_domain_normalized:
+                        existing_lead.company_domain = company_domain_normalized
+                    if not existing_lead.city and lead_data.get('city'):
+                        existing_lead.city = lead_data.get('city')
+                    if is_missing_country(existing_lead.country) and lead_data.get('country'):
+                        existing_lead.country = lead_data.get('country')
                     duplicates += 1
                 else:
                     # Create new lead
@@ -303,6 +368,8 @@ def process_csv_file(
         
         # Commit all changes
         db.commit()
+
+        duplicate_rows_total = duplicates + csv_duplicates + cooldown_skipped
         
         # Create import record for audit trail
         import_record = Import(
@@ -310,7 +377,7 @@ def process_csv_file(
             source=source,
             total_rows=total_rows,
             inserted_rows=new_leads,
-            duplicate_rows=duplicates,
+            duplicate_rows=duplicate_rows_total,
             imported_at=current_date
         )
         db.add(import_record)
@@ -321,7 +388,11 @@ def process_csv_file(
             "import_id": import_record.id,
             "total_rows": total_rows,
             "new_leads_inserted": new_leads,
-            "duplicates_skipped": duplicates,
+            "duplicates_skipped": duplicate_rows_total,
+            "csv_duplicates": csv_duplicates,
+            "db_matches": duplicates,
+            "cooldown_skipped": cooldown_skipped,
+            "error_rows": len(errors),
             "errors": errors[:10]  # Limit to first 10 errors
         }
     
@@ -332,6 +403,10 @@ def process_csv_file(
             "total_rows": 0,
             "new_leads_inserted": 0,
             "duplicates_skipped": 0,
+            "csv_duplicates": 0,
+            "db_matches": 0,
+            "cooldown_skipped": 0,
+            "error_rows": 0,
             "errors": [f"Failed to process CSV: {str(e)}"]
         }
 
@@ -388,5 +463,9 @@ def process_csv_bytes(
             "total_rows": 0,
             "new_leads_inserted": 0,
             "duplicates_skipped": 0,
+            "csv_duplicates": 0,
+            "db_matches": 0,
+            "cooldown_skipped": 0,
+            "error_rows": 0,
             "errors": [f"Failed to process uploaded file: {str(e)}"]
         }

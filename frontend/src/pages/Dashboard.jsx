@@ -87,25 +87,6 @@ function Dashboard() {
             />
           </div>
 
-          {/* Qualify Leads (AI) */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">
-              AI Qualification
-            </h2>
-            <p className="text-sm text-gray-600 mb-4">
-              Run Perplexity AI to score unscored leads by company (ICP score + tags). Only leads from the last 7 days (newly uploaded) are qualified. One API call per company domain.
-            </p>
-            <Link
-              to="/qualify"
-              className="inline-block px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600"
-            >
-              Qualify leads
-            </Link>
-            <p className="mt-2 text-sm text-gray-500">
-              Opens a dedicated page with progress bar and estimated time.
-            </p>
-          </div>
-
           {/* Quick Actions */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">

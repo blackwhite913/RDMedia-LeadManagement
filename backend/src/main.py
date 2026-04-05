@@ -6,7 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
-# Load backend/.env so PERPLEXITY_API_KEY is available regardless of process cwd
+# Load backend/.env regardless of process cwd
 _backend_dir = Path(__file__).resolve().parent.parent
 load_dotenv(_backend_dir / ".env")
 from fastapi.middleware.cors import CORSMiddleware

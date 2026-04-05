@@ -43,10 +43,10 @@ class Lead(Base):
     company_domain = Column(String, nullable=True)
     city = Column(String, nullable=True)
     country = Column(String, nullable=True)
-    icp_score = Column(Float, nullable=True)
-    qualification_tags = Column(String, nullable=True)  # JSON array string
-    qualified_at = Column(DateTime, nullable=True)
-    qualification_reason = Column(String, nullable=True)
+    icp_score = Column(Float, nullable=True)  # deprecated - no longer used
+    qualification_tags = Column(String, nullable=True)  # deprecated - no longer used
+    qualified_at = Column(DateTime, nullable=True)  # deprecated - no longer used
+    qualification_reason = Column(String, nullable=True)  # deprecated - no longer used
     
     # Metadata
     source = Column(String, default="apollo", nullable=False)

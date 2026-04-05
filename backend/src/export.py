@@ -1,11 +1,10 @@
 """
 Lead export system with percentage-based selection and cooldown logic
 """
-import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import or_
 from src.models import Lead, Export, ExportLead
 
 # Configurable cooldown period in days
@@ -14,8 +13,7 @@ COOLDOWN_DAYS = 90
 
 def get_eligible_leads(
     db: Session,
-    country: Optional[str] = None,
-    qualified_only: bool = True,
+    country: Optional[str] = None
 ) -> List[Lead]:
     """
     Get leads eligible for export (not in cooldown, has valid email)
@@ -23,7 +21,6 @@ def get_eligible_leads(
     Args:
         db: Database session
         country: Optional country filter
-        qualified_only: If True, include only leads with icp_score >= 70
     
     Returns:
         List of eligible Lead objects
@@ -40,28 +37,11 @@ def get_eligible_leads(
         )
     )
 
-    # Optional AI qualification filter.
-    if qualified_only:
-        query = query.filter(
-            Lead.icp_score.isnot(None),
-            Lead.icp_score >= 70
-        )
-    
     # Apply optional filters
     if country:
         query = query.filter(Lead.country == country)
 
-    # Prioritize high ICP first and keep unranked leads (NULL) last.
-    # Secondary sort on id keeps ordering deterministic for ties.
-    if hasattr(Lead, "icp_score"):
-        query = query.order_by(
-            Lead.icp_score.is_(None),
-            Lead.icp_score.desc(),
-            Lead.id.asc()
-        )
-    else:
-        # TODO: Keep fallback until all environments include Lead.icp_score.
-        pass
+    query = query.order_by(Lead.created_at.desc())
     
     return query.all()
 
@@ -71,8 +51,7 @@ def create_export(
     percentage: float,
     batch_name: str,
     seed: Optional[int] = None,
-    filters: Optional[Dict] = None,
-    qualified_only: bool = True
+    filters: Optional[Dict] = None
 ) -> Dict:
     """
     Create a new export batch with percentage-based lead selection
@@ -94,8 +73,7 @@ def create_export(
     country_filter = filters.get('country') if filters else None
     eligible = get_eligible_leads(
         db,
-        country=country_filter,
-        qualified_only=qualified_only
+        country=country_filter
     )
     eligible_count = len(eligible)
     
@@ -114,15 +92,7 @@ def create_export(
             "message": f"Percentage too low: would export 0 leads (eligible: {eligible_count})"
         }
     
-    # If ICP ranking is available, export highest-ranked leads first.
-    # Fallback to random sampling only for legacy schemas without icp_score.
-    if hasattr(Lead, "icp_score"):
-        selected_leads = eligible[:export_count]
-    else:
-        # Random selection with optional seed for reproducibility
-        if seed is not None:
-            random.seed(seed)
-        selected_leads = random.sample(eligible, export_count)
+    selected_leads = eligible[:export_count]
     
     # Create export record
     export_record = Export(
@@ -180,7 +150,6 @@ def create_export(
         "eligible_count": eligible_count,
         "exported_count": len(selected_leads),
         "percentage_used": percentage,
-        "qualified_only": qualified_only,
         "cooldown_until": cooldown_date.isoformat(),
         "cooldown_days": COOLDOWN_DAYS,
         "leads": csv_data

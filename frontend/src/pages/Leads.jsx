@@ -11,6 +11,11 @@ function Leads() {
   const [total, setTotal] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleteMode, setDeleteMode] = useState(null)
+  const [targetLeadId, setTargetLeadId] = useState(null)
+  const [deleting, setDeleting] = useState(false)
   const limit = 50
 
   // Fetch leads
@@ -29,6 +34,7 @@ function Leads() {
       setLeads(data.leads)
       setTotal(data.total)
       setTotalPages(data.total_pages)
+      setSelectedIds(new Set())
     } catch (err) {
       console.error('Error fetching leads:', err)
       setError('Failed to load leads. Please check if the backend is running.')
@@ -79,6 +85,72 @@ function Leads() {
     setPage(pageNum)
   }
 
+  const handleToggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  const handleToggleSelectAll = (checked) => {
+    if (checked) {
+      setSelectedIds(new Set(leads.map((lead) => lead.id)))
+    } else {
+      setSelectedIds(new Set())
+    }
+  }
+
+  const handleRequestSingleDelete = (id) => {
+    setDeleteMode('single')
+    setTargetLeadId(id)
+    setConfirmOpen(true)
+  }
+
+  const handleRequestBulkDelete = () => {
+    if (selectedIds.size === 0) return
+    setDeleteMode('bulk')
+    setTargetLeadId(null)
+    setConfirmOpen(true)
+  }
+
+  const handleCloseConfirm = () => {
+    if (deleting) return
+    setConfirmOpen(false)
+    setDeleteMode(null)
+    setTargetLeadId(null)
+  }
+
+  const handleConfirmDelete = async () => {
+    try {
+      setDeleting(true)
+      setError(null)
+
+      if (deleteMode === 'single' && targetLeadId !== null) {
+        await api.deleteLead(targetLeadId)
+      } else if (deleteMode === 'bulk') {
+        await api.deleteLeadsBulk(Array.from(selectedIds))
+      }
+
+      setConfirmOpen(false)
+      setDeleteMode(null)
+      setTargetLeadId(null)
+      setSelectedIds(new Set())
+      await fetchLeads()
+    } catch (err) {
+      console.error('Error deleting lead(s):', err)
+      setError('Failed to delete selected lead(s). Please try again.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const allSelected = leads.length > 0 && leads.every((lead) => selectedIds.has(lead.id))
+
   // Generate page numbers for pagination
   const getPageNumbers = () => {
     const pages = []
@@ -127,7 +199,7 @@ function Leads() {
 
       {/* Search Bar */}
       <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-4">
           <div className="flex-1 relative">
             <input
               type="text"
@@ -163,6 +235,19 @@ function Leads() {
               {searchQuery ? 'result(s)' : 'total lead(s)'}
             </span>
           </div>
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-600">
+                {selectedIds.size} selected
+              </span>
+              <button
+                onClick={handleRequestBulkDelete}
+                className="px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700"
+              >
+                Delete Selected
+              </button>
+            </div>
+          )}
         </div>
         {searchQuery && (
           <div className="mt-2 text-sm text-gray-600">
@@ -179,7 +264,15 @@ function Leads() {
       )}
 
       {/* Lead Table */}
-      <LeadTable leads={leads} loading={loading} />
+      <LeadTable
+        leads={leads}
+        loading={loading}
+        selectedIds={selectedIds}
+        allSelected={allSelected}
+        onToggleSelect={handleToggleSelect}
+        onToggleSelectAll={handleToggleSelectAll}
+        onDeleteSingle={handleRequestSingleDelete}
+      />
 
       {/* Pagination */}
       {!loading && leads.length > 0 && totalPages > 1 && (
@@ -253,6 +346,38 @@ function Leads() {
           >
             Clear search
           </button>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">Confirm Delete</h2>
+            </div>
+            <div className="px-6 py-4 text-sm text-gray-700">
+              {deleteMode === 'single'
+                ? 'Are you sure you want to delete this lead? This action cannot be undone.'
+                : `Are you sure you want to delete ${selectedIds.size} lead(s)? This action cannot be undone.`}
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={handleCloseConfirm}
+                disabled={deleting}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={deleting}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
