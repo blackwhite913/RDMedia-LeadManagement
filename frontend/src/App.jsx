@@ -3,6 +3,7 @@ import Navbar from './components/Navbar'
 import Dashboard from './pages/Dashboard'
 import Upload from './pages/Upload'
 import Export from './pages/Export'
+import AdvancedExport from './pages/AdvancedExport'
 import Leads from './pages/Leads'
 
 function App() {
@@ -15,6 +16,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/export" element={<Export />} />
+            <Route path="/export/advanced" element={<AdvancedExport />} />
             <Route path="/leads" element={<Leads />} />
           </Routes>
         </main>

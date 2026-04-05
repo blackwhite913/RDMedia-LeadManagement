@@ -13,14 +13,16 @@ COOLDOWN_DAYS = 90
 
 def get_eligible_leads(
     db: Session,
-    country: Optional[str] = None
+    include_countries: Optional[List[str]] = None,
+    exclude_countries: Optional[List[str]] = None
 ) -> List[Lead]:
     """
     Get leads eligible for export (not in cooldown, has valid email)
     
     Args:
         db: Database session
-        country: Optional country filter
+        include_countries: Optional allowlist country filter (IN)
+        exclude_countries: Optional blocklist country filter (NOT IN)
     
     Returns:
         List of eligible Lead objects
@@ -38,8 +40,10 @@ def get_eligible_leads(
     )
 
     # Apply optional filters
-    if country:
-        query = query.filter(Lead.country == country)
+    if include_countries:
+        query = query.filter(Lead.country.in_(include_countries))
+    if exclude_countries:
+        query = query.filter(Lead.country.notin_(exclude_countries))
 
     query = query.order_by(Lead.created_at.desc())
     
@@ -70,10 +74,12 @@ def create_export(
         raise ValueError("Percentage must be between 0 and 100")
     
     # Get eligible leads
-    country_filter = filters.get('country') if filters else None
+    include_countries = filters.get('include_countries') if filters else None
+    exclude_countries = filters.get('exclude_countries') if filters else None
     eligible = get_eligible_leads(
         db,
-        country=country_filter
+        include_countries=include_countries,
+        exclude_countries=exclude_countries
     )
     eligible_count = len(eligible)
     

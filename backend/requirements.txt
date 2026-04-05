@@ -5,3 +5,4 @@ pandas==2.2.0
 python-multipart==0.0.6
 requests>=2.31.0
 python-dotenv>=1.0.0
+country-converter>=1.2.0

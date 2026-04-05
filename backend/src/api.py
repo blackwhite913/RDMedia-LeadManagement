@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from src.db import get_db
 from src.models import Lead, Import, Export, ExportLead
 from src.ingest import process_csv_bytes
+from src.country_filters import normalize_country_options
 
 # Create router
 router = APIRouter(prefix="/api")
@@ -146,6 +147,24 @@ def get_leads(
     }
 
 
+@router.get("/leads/countries")
+def get_countries(db: Session = Depends(get_db)):
+    """
+    Distinct country values from leads, normalized to canonical country names.
+
+    Raw values like numeric IDs (e.g. "314") and non-country regions are excluded.
+    Each item includes `continent` for grouped UI (via country_converter).
+    """
+    rows = db.query(Lead.country).filter(
+        Lead.country.isnot(None),
+        Lead.country != ''
+    ).distinct().order_by(Lead.country.asc()).all()
+
+    raw_values = [row[0] for row in rows if row[0]]
+    countries = normalize_country_options(raw_values)
+    return {"countries": countries}
+
+
 @router.delete("/leads/{lead_id}")
 def delete_lead(
     lead_id: int,
@@ -244,7 +263,8 @@ def search_leads(
 async def create_lead_export(
     percentage: float = Query(..., ge=0.1, le=100, description="Percentage of eligible leads to export"),
     batch_name: str = Query(..., min_length=1, description="Name for this export batch"),
-    country: Optional[str] = Query(None, description="Optional country filter"),
+    include_countries: Optional[List[str]] = Query(None, description="Optional include-country filters (IN)"),
+    exclude_countries: Optional[List[str]] = Query(None, description="Optional exclude-country filters (NOT IN)"),
     seed: Optional[int] = Query(None, description="Optional random seed for reproducibility"),
     db: Session = Depends(get_db)
 ):
@@ -256,7 +276,12 @@ async def create_lead_export(
     try:
         from src.export import create_export
         
-        filters = {"country": country} if country else None
+        filters = {}
+        if include_countries:
+            filters["include_countries"] = include_countries
+        if exclude_countries:
+            filters["exclude_countries"] = exclude_countries
+        filters = filters or None
         
         result = create_export(
             db=db,
@@ -277,7 +302,8 @@ async def create_lead_export(
 @router.get("/export/preview")
 def preview_export(
     percentage: float = Query(..., ge=0.1, le=100, description="Percentage to preview"),
-    country: Optional[str] = Query(None, description="Optional country filter"),
+    include_countries: Optional[List[str]] = Query(None, description="Optional include-country filters (IN)"),
+    exclude_countries: Optional[List[str]] = Query(None, description="Optional exclude-country filters (NOT IN)"),
     db: Session = Depends(get_db)
 ):
     """
@@ -291,7 +317,8 @@ def preview_export(
         # Get eligible leads
         eligible = get_eligible_leads(
             db,
-            country=country
+            include_countries=include_countries,
+            exclude_countries=exclude_countries
         )
         eligible_count = len(eligible)
         would_export = int(eligible_count * (percentage / 100))

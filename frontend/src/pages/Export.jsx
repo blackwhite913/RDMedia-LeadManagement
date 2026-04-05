@@ -1,10 +1,15 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import api from '../api/client'
+import CountryMultiSelect from '../components/CountryMultiSelect'
 
 function Export() {
   const [batchName, setBatchName] = useState('')
   const [percentage, setPercentage] = useState(30)
-  const [country, setCountry] = useState('')
+  const [percentageInput, setPercentageInput] = useState('30')
+  const [includeCountries, setIncludeCountries] = useState([])
+  const [excludeCountries, setExcludeCountries] = useState([])
+  const [countryOptions, setCountryOptions] = useState([])
   const [preview, setPreview] = useState(null)
   const [exportResult, setExportResult] = useState(null)
   const [exportHistory, setExportHistory] = useState([])
@@ -17,6 +22,10 @@ function Export() {
     fetchExportHistory()
   }, [historyPage])
 
+  useEffect(() => {
+    fetchCountries()
+  }, [])
+
   const fetchExportHistory = async () => {
     try {
       const data = await api.getExports(historyPage, 10)
@@ -27,11 +36,79 @@ function Export() {
     }
   }
 
+  const fetchCountries = async () => {
+    try {
+      const data = await api.getCountries()
+      setCountryOptions(data.countries || [])
+    } catch (err) {
+      console.error('Error fetching countries:', err)
+    }
+  }
+
+  const handlePresetPercentage = (value) => {
+    setPercentage(value)
+    setPercentageInput(String(value))
+  }
+
+  const handlePercentageInput = (e) => {
+    const raw = e.target.value
+
+    if (raw === '') {
+      setPercentageInput('')
+      setPercentage(null)
+      return
+    }
+
+    // Only allow numeric input (optionally decimal) or empty.
+    if (!/^\d*\.?\d*$/.test(raw)) {
+      return
+    }
+
+    let normalized = raw
+    if (normalized.startsWith('.')) {
+      normalized = `0${normalized}`
+    }
+
+    // Prevent leading zeros like "01" while keeping valid values like "0.5".
+    normalized = normalized.replace(/^0+(\d)/, '$1')
+
+    setPercentageInput(normalized)
+    const parsed = Number(normalized)
+    setPercentage(Number.isFinite(parsed) ? parsed : null)
+  }
+
+  const handleIncludeChange = (next) => {
+    setIncludeCountries(next)
+    setExcludeCountries((prev) => prev.filter((c) => !next.includes(c)))
+  }
+
+  const handleExcludeChange = (next) => {
+    setExcludeCountries(next)
+    setIncludeCountries((prev) => prev.filter((c) => !next.includes(c)))
+  }
+
+  const buildFilters = () => {
+    const filters = {}
+    if (includeCountries.length) {
+      filters.include_countries = includeCountries
+    }
+    if (excludeCountries.length) {
+      filters.exclude_countries = excludeCountries
+    }
+    return filters
+  }
+
+  const canPreview =
+    batchName.trim().length > 0 &&
+    percentageInput !== '' &&
+    percentage !== null &&
+    percentage > 0
+
   const handlePreview = async () => {
     try {
       setLoading(true)
       setError(null)
-      const filters = country ? { country } : {}
+      const filters = buildFilters()
       const data = await api.previewExport(percentage, filters)
       setPreview(data)
     } catch (err) {
@@ -51,7 +128,7 @@ function Export() {
     try {
       setLoading(true)
       setError(null)
-      const filters = country ? { country } : {}
+      const filters = buildFilters()
       const data = await api.createExport(percentage, batchName, filters)
       
       if (data.success) {
@@ -106,7 +183,15 @@ function Export() {
     <div className="max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Export Leads</h1>
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-3xl font-bold text-gray-900">Export Leads</h1>
+          <Link
+            to="/export/advanced"
+            className="text-sm font-medium text-blue-600 hover:text-blue-800"
+          >
+            Advanced Export →
+          </Link>
+        </div>
         <p className="text-gray-600">
           Create percentage-based exports with automatic 90-day cooldown
         </p>
@@ -133,18 +218,19 @@ function Export() {
             />
           </div>
 
-          {/* Percentage Selection */}
+          {/* Quick Export */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Export Percentage
+              Quick Export
             </label>
             <div className="flex gap-2 mb-2">
               {[20, 30, 40, 80].map((pct) => (
                 <button
+                  type="button"
                   key={pct}
-                  onClick={() => setPercentage(pct)}
+                  onClick={() => handlePresetPercentage(pct)}
                   className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                    percentage === pct
+                    percentageInput === String(pct)
                       ? 'bg-blue-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
@@ -153,35 +239,55 @@ function Export() {
                 </button>
               ))}
             </div>
-            <input
-              type="number"
-              value={percentage}
-              onChange={(e) => setPercentage(Number(e.target.value))}
-              min="0.1"
-              max="100"
-              step="0.1"
-              className="w-32 px-4 py-2 border border-gray-300 rounded-lg"
-            />
           </div>
 
-          {/* Optional Country Filter */}
+          {/* Custom Percentage */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Country Filter (Optional)
+              Custom Percentage
             </label>
             <input
               type="text"
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              placeholder="e.g., USA"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+              inputMode="decimal"
+              value={percentageInput}
+              onChange={handlePercentageInput}
+              placeholder="e.g., 35"
+              className="w-40 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
+          </div>
+
+          {/* Filters */}
+          <div className="space-y-2">
+            <div>
+              <span className="block text-sm font-medium text-gray-700">Filters</span>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Countries are validated against ISO names; junk values (e.g. numeric codes) are hidden.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+              <CountryMultiSelect
+                label="Include countries (IN)"
+                hint="Leads must match at least one selected country."
+                options={countryOptions}
+                selected={includeCountries}
+                onChange={handleIncludeChange}
+                placeholder="Any country"
+              />
+              <CountryMultiSelect
+                label="Exclude countries (NOT IN)"
+                hint="Leads matching any selected country are removed."
+                options={countryOptions}
+                selected={excludeCountries}
+                onChange={handleExcludeChange}
+                placeholder="No exclusions"
+              />
+            </div>
           </div>
 
           {/* Preview Button */}
           <button
             onClick={handlePreview}
-            disabled={loading}
+            disabled={loading || !canPreview}
             className="w-full py-3 px-4 bg-gray-600 text-white rounded-lg font-medium hover:bg-gray-700 transition-colors disabled:bg-gray-300"
           >
             {loading ? 'Loading...' : 'Preview Export'}

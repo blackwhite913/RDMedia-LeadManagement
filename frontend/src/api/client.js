@@ -90,12 +90,22 @@ export const api = {
    * @returns {Promise} Export result with CSV data
    */
   createExport: async (percentage, batchName, filters = {}) => {
+    const params = new URLSearchParams();
+    params.append('percentage', String(percentage));
+    params.append('batch_name', batchName);
+    if (filters.include_countries?.length) {
+      filters.include_countries.forEach((country) => {
+        params.append('include_countries', country);
+      });
+    }
+    if (filters.exclude_countries?.length) {
+      filters.exclude_countries.forEach((country) => {
+        params.append('exclude_countries', country);
+      });
+    }
+
     const response = await apiClient.post('/export', null, {
-      params: {
-        percentage,
-        batch_name: batchName,
-        ...filters,
-      },
+      params,
     });
     return response.data;
   },
@@ -107,9 +117,31 @@ export const api = {
    * @returns {Promise} Preview data
    */
   previewExport: async (percentage, filters = {}) => {
+    const params = new URLSearchParams();
+    params.append('percentage', String(percentage));
+    if (filters.include_countries?.length) {
+      filters.include_countries.forEach((country) => {
+        params.append('include_countries', country);
+      });
+    }
+    if (filters.exclude_countries?.length) {
+      filters.exclude_countries.forEach((country) => {
+        params.append('exclude_countries', country);
+      });
+    }
+
     const response = await apiClient.get('/export/preview', {
-      params: { percentage, ...filters },
+      params,
     });
+    return response.data;
+  },
+
+  /**
+   * Get distinct countries from leads
+   * @returns {Promise} Countries list
+   */
+  getCountries: async () => {
+    const response = await apiClient.get('/leads/countries');
     return response.data;
   },
 
